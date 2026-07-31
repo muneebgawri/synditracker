@@ -14,7 +14,12 @@ class Synditracker_Core_Activator {
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-synditracker-logger.php';
         
 		Synditracker_Core_DB::create_table();
+		Synditracker_Core_DB::create_alerts_table();
         Synditracker_Logger::create_table();
+
+        // Also runs the column-level migrations, so activating over an older
+        // install converges on the same schema as an in-place upgrade.
+        Synditracker_Core_DB::maybe_upgrade();
 	}
 
 }

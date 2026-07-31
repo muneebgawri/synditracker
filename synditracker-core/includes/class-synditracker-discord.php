@@ -23,10 +23,9 @@ class Synditracker_Discord {
      * @return   bool|WP_Error         True on success, WP_Error on failure.
      */
     public static function send_notification( $title, $fields = array(), $color = '#00ff00', $url = '' ) {
-        $webhook_url = get_option( 'synditracker_discord_webhook_url' );
+        $webhook_url = self::get_webhook_url();
 
         if ( empty( $webhook_url ) ) {
-            Synditracker_Logger::log( 'error', 'Discord Webhook URL is missing', array() );
             return false;
         }
 
@@ -63,31 +62,54 @@ class Synditracker_Discord {
         
         $body_json = json_encode( $payload );
 
-        // Log the attempt
-        Synditracker_Logger::log( 'audit', 'Sending Discord Notification', array( 'url_masked' => substr($webhook_url, 0, 40) . '...', 'payload' => $payload ) );
-
+        // Deliberately not logged on the happy path: the previous audit entry
+        // wrote the full payload and a partially-masked webhook URL on every
+        // send, which was both noisy and a mild secret leak.
         $response = wp_remote_post( $webhook_url, array(
             'body'        => $body_json,
             'headers'     => array( 'Content-Type' => 'application/json' ),
             'blocking'    => true, // Block to catch errors
-            'timeout'     => 10, // Increased timeout
+            'timeout'     => 5,
         ));
 
         if ( is_wp_error( $response ) ) {
             Synditracker_Logger::log( 'error', 'Discord Notification Failed (Network)', array( 'error' => $response->get_error_message() ) );
             return $response;
         }
-        
-        $code = wp_remote_retrieve_response_code( $response );
-        $body = wp_remote_retrieve_body( $response );
 
+        $code = wp_remote_retrieve_response_code( $response );
         if ( $code < 200 || $code >= 300 ) {
+            $body = wp_remote_retrieve_body( $response );
             Synditracker_Logger::log( 'error', 'Discord Notification Failed (HTTP ' . $code . ')', array( 'response' => $body, 'payload' => $payload ) );
             return new WP_Error( 'discord_error', 'Discord API Error: ' . $code, array( 'status' => $code ) );
         }
 
-        Synditracker_Logger::log( 'audit', 'Discord Notification Sent Successfully', array( 'code' => $code ) );
-
         return true;
+    }
+
+    /**
+     * Resolve the webhook URL.
+     *
+     * Production accumulated three separate options holding the same URL, only
+     * one of which was ever read. They are checked in order of precedence so a
+     * value set in any of them keeps working, and the canonical one wins.
+     *
+     * @return string
+     */
+    public static function get_webhook_url() {
+        $url = get_option( 'synditracker_discord_webhook_url' );
+
+        if ( empty( $url ) ) {
+            $settings = get_option( 'synditracker_alert_settings', array() );
+            if ( ! empty( $settings['discord_webhook'] ) ) {
+                $url = $settings['discord_webhook'];
+            }
+        }
+
+        if ( empty( $url ) ) {
+            $url = get_option( 'synditracker_discord_webhook' );
+        }
+
+        return (string) apply_filters( 'synditracker_discord_webhook_url', $url );
     }
 }

@@ -3,7 +3,7 @@
  * Plugin Name:       Synditracker Core
  * Plugin URI:        https://muneebgawri.com/synditracker-core
  * Description:       The Hub for receiving, verifying, and storing syndicated content reports.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Author:            Muneeb Gawri
  * Author URI:        https://muneebgawri.com
  * License:           GPL-2.0+
@@ -19,7 +19,7 @@ if ( ! defined( 'WPINC' ) ) {
 /**
  * Currently plugin version.
  */
-define( 'SYNDITRACKER_CORE_VERSION', '1.0.0' );
+define( 'SYNDITRACKER_CORE_VERSION', '1.1.0' );
 define( 'SYNDITRACKER_CORE_PATH', plugin_dir_path( __FILE__ ) );
 define( 'SYNDITRACKER_CORE_URL', plugin_dir_url( __FILE__ ) );
 

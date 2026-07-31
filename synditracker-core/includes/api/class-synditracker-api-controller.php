@@ -126,29 +126,21 @@ class Synditracker_API_Controller {
         // Identify Partner
         $auth_header = $request->get_header( 'authorization' );
         $token = str_replace( 'Bearer ', '', $auth_header );
-        $partner_site_id = get_transient( 'synditracker_token_' . $token ); // Should exist
+        $partner_site_id = get_transient( 'synditracker_token_' . $token );
 
-        // Deduplication
-        require_once plugin_dir_path( dirname( __FILE__ ) ) . '../includes/class-synditracker-core-db.php';
-        
+        // The permission callback already validated the token, but the transient
+        // can expire between the two. Fail loudly rather than filing the report
+        // against partner_site_id 0.
+        if ( ! $partner_site_id ) {
+            return new WP_Error( 'invalid_token', 'Token expired', array( 'status' => 401 ) );
+        }
+
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'class-synditracker-core-db.php';
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'class-synditracker-alerts.php';
+
         $source_post_id = isset($params['source_post_id']) ? $params['source_post_id'] : '';
         $source_title   = isset($params['source_title']) ? sanitize_text_field( $params['source_title'] ) : '';
         $content_hash   = isset($params['content_hash']) ? $params['content_hash'] : '';
-
-        // Extended Deduplication
-        $criteria = array(
-            'partner_site_id' => $partner_site_id,
-            'source_post_id'  => $source_post_id,
-            'source_title'    => $source_title,
-            'content_hash'    => $content_hash,
-        );
-        $duplicate_id = Synditracker_Core_DB::check_duplicate_extended( $criteria );
-        
-        $status = 'valid';
-        if ( $duplicate_id ) {
-            $status = 'duplicate';
-            Synditracker_Logger::log( 'access', 'Duplicate report received', array( 'partner_site_id' => $partner_site_id, 'source_post_id' => $source_post_id, 'title' => $source_title ) );
-        }
 
         $data = array(
             'partner_site_id' => $partner_site_id,
@@ -160,54 +152,51 @@ class Synditracker_API_Controller {
             'aggregator_name' => sanitize_text_field( isset($params['aggregator_name']) ? $params['aggregator_name'] : '' ),
             'site_domain'     => sanitize_text_field( $params['site_domain'] ),
             'content_hash'    => sanitize_text_field( $content_hash ),
-            'status'          => $status,
+            'status'          => 'valid',
             'debug_log'       => isset( $params['debug_log'] ) ? json_encode( $params['debug_log'] ) : '',
         );
 
-        $result = Synditracker_Core_DB::insert_report( $data );
+        // Re-observations update the existing row instead of inserting a new
+        // one, so a partner re-importing the same article no longer inflates
+        // the table or trips an alert on its own.
+        $result = Synditracker_Core_DB::record_observation( $data );
 
-        if ( $result ) {
-            if ( 'valid' === $status ) {
-                $log_data = array( 'report_id' => $result, 'partner_site_id' => $partner_site_id );
-                Synditracker_Logger::audit( 'Report received', $log_data );
-            }
-
-            if ( 'duplicate' === $status ) {
-                // Alert admin about duplicate syndication
-                require_once plugin_dir_path( dirname( __FILE__ ) ) . '../includes/class-synditracker-discord.php';
-
-                // Get partner site name for context
-                $partner_name = get_the_title( $partner_site_id ) ?: 'Unknown Partner';
-
-                $fields = array(
-                    array( 'name' => 'Title',          'value' => $data['source_title'] ?: 'No Title',              'inline' => false ),
-                    array( 'name' => 'Source Site',    'value' => $data['site_domain'] ?: 'Unknown',                'inline' => true ),
-                    array( 'name' => 'Partner Site',   'value' => $partner_name . ' (#' . $partner_site_id . ')',   'inline' => true ),
-                    array( 'name' => 'Aggregator',     'value' => $data['aggregator_name'] ?: 'Manual/Direct',      'inline' => true ),
-                    array( 'name' => 'Source URL',     'value' => $data['source_url'] ?: 'N/A',                     'inline' => false ),
-                    array( 'name' => 'Local Post ID',  'value' => (string) ( $data['local_post_id'] ?: 'N/A' ),     'inline' => true ),
-                    array( 'name' => 'Source Post ID', 'value' => (string) ( $data['source_post_id'] ?: 'N/A' ),    'inline' => true ),
-                    array( 'name' => 'Original Report','value' => '#' . $duplicate_id,                              'inline' => true ),
-                    array( 'name' => 'Content Hash',   'value' => $data['content_hash'] ? substr($data['content_hash'], 0, 16) . '...' : 'N/A', 'inline' => true ),
-                    array( 'name' => 'Source GUID',    'value' => $data['source_guid'] ?: 'N/A',                    'inline' => true ),
-                );
-                
-                Synditracker_Discord::send_notification( 
-                    '⚠️ Duplicate Syndication Detected', 
-                    $fields, 
-                    '#ff0000', 
-                    $data['source_url']
-                );
-            }
-            return new WP_REST_Response( array( 'success' => true, 'report_id' => $result, 'status' => $status ), 200 );
+        if ( ! $result ) {
+            Synditracker_Logger::error( 'Failed to record report', array( 'params' => $params ) );
+            return new WP_Error( 'db_error', 'Failed to insert report', array( 'status' => 500 ) );
         }
 
-        Synditracker_Logger::error( 'Failed to insert report', array( 'params' => $params ) );
-        return new WP_Error( 'db_error', 'Failed to insert report', array( 'status' => 500 ) );
+        if ( $result['is_repeat'] ) {
+            Synditracker_Logger::log( 'access', 'Repeat observation', array(
+                'report_id'       => $result['id'],
+                'partner_site_id' => $partner_site_id,
+                'seen_count'      => $result['seen_count'],
+                'title'           => $source_title,
+            ) );
+
+            // Spike detection decides whether this is worth a human's attention.
+            Synditracker_Alerts::maybe_alert( $partner_site_id, array(
+                'aggregator_name' => $data['aggregator_name'],
+                'latest_title'    => $source_title,
+                'source_url'      => $data['source_url'],
+            ) );
+        } else {
+            Synditracker_Logger::audit( 'Report received', array(
+                'report_id'       => $result['id'],
+                'partner_site_id' => $partner_site_id,
+            ) );
+        }
+
+        return new WP_REST_Response( array(
+            'success'    => true,
+            'report_id'  => $result['id'],
+            'status'     => $result['is_repeat'] ? 'duplicate' : 'valid',
+            'seen_count' => $result['seen_count'],
+        ), 200 );
     }
     
     public function get_reports( $request ) {
-        require_once plugin_dir_path( dirname( __FILE__ ) ) . '../includes/class-synditracker-core-db.php';
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'class-synditracker-core-db.php';
         $reports = Synditracker_Core_DB::get_reports();
         return new WP_REST_Response( $reports, 200 );
     }
