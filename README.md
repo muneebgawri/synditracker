@@ -157,10 +157,16 @@ The Hub plugin is deployed by copying the directory into `wp-content/plugins/` a
 recycling PHP:
 
 ```bash
-tar czf - synditracker-core | ssh <host> 'sudo tar xzf - -C /var/www/html/wp-content/plugins/ \
+COPYFILE_DISABLE=1 tar czf - synditracker-core | ssh <host> \
+  'sudo tar xzf - -C /var/www/html/wp-content/plugins/ \
   && sudo chown -R www-data:www-data /var/www/html/wp-content/plugins/synditracker-core \
   && sudo killall lsphp'
 ```
+
+`COPYFILE_DISABLE=1` matters when deploying from macOS: without it, `tar` bundles
+AppleDouble `._*` resource-fork files and scatters them through the plugin directory on the
+server. They are inert but they match `*.php` globs and are pure noise. To clean up after a
+deploy that forgot it: `sudo find <plugin-dir> -name '._*' -delete`.
 
 `killall lsphp` is **required** on the Pinion LiteSpeed host: its opcache does not revalidate
 timestamps, so without it the old bytecode keeps serving. Then let `init` run the migration,
