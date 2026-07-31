@@ -188,10 +188,13 @@ wp eval '$s=get_option("synditracker_alert_settings",array()); $s["discord_enabl
 
 ## Test environment
 
-`st-agent` and `st-agent-wpe` on the Pinion VPS are WordPress installs carrying the agent
-plugin, the second with WPeMatico configured to pull the Pinion feed. They are the only
-harness for exercising the agent→Hub path. See
-[`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) before retiring them.
+There is currently **no live rig** for the agent→Hub path. `st-agent` and `st-agent-wpe` on
+the Pinion VPS filled that role until they were decommissioned on 2026-07-31; this repo is
+their archive.
+
+To rebuild one, see [`tools/wpematico-test-harness/`](./tools/wpematico-test-harness/) —
+the scripts that stood up the original simulated partner site, plus notes on the WPeMatico
+setup traps.
 
 ---
 

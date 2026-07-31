@@ -105,18 +105,28 @@ most recent offending URLs.
 
 ---
 
-## Test environment — do not delete yet
+## Test environment — REMOVED 2026-07-31
 
-`st-agent` and `st-agent-wpe` on the Pinion VPS look abandoned (untouched since
-2026-02-11, no DNS records) and were briefly slated for decommissioning. They are the only
-environment that can exercise the agent→Hub path, which is exactly what items 1, 2 and 4
-require. Retire them **after** that work lands.
+`st-agent` and `st-agent-wpe` on the Pinion VPS have been **decommissioned**. Both had been
+untouched since 2026-02-11 and had no DNS records. Removed: the site files (216 MB), both
+LiteSpeed vhosts and their listener maps, and the shared `st_agent_db` database (24 tables,
+7.4 MB).
 
-Two caveats if you do bring them back up:
+**This repo is their archive.** Before deletion:
 
-- `st-agent-wpe`'s vhost declares `extprocessor lsapi:lsphp83` while its `scripthandler`
-  references `lsphp83`. The names do not match, so LiteSpeed falls back to the **static file
-  handler for `.php`** — it would serve PHP source, including `wp-config.php`, as plain text.
-  Harmless while the host has no DNS record; fix it before exposing the site. The simplest
-  fix is deleting both blocks so the vhost inherits the working server-level handler.
-- Both installs share the `st_agent_db` database.
+- The agent plugin was confirmed fully committed here — the repo is in fact *ahead* of what
+  was on those servers (it carries an `idn_to_ascii` polyfill neither install had), and
+  `st-agent`'s copy was an older variant than `st-agent-wpe`'s, which is what this repo
+  matches.
+- The four WPeMatico harness scripts existed **only** on the server and are now preserved at
+  [`tools/wpematico-test-harness/`](../tools/wpematico-test-harness/).
+
+**Consequence for items 1, 2 and 4:** there is no longer a live rig for the agent→Hub path.
+Rebuild one using `tools/wpematico-test-harness/README.md`, or work directly against a real
+partner site, before attempting the detection-regression diagnosis.
+
+Removing these also cleared two long-standing LiteSpeed config errors, one of them latent but
+serious: `st-agent-wpe`'s vhost declared `extprocessor lsapi:lsphp83` while its
+`scripthandler` referenced `lsphp83`. The names did not match, so LiteSpeed fell back to the
+**static file handler for `.php`** — that vhost would have served PHP source, including
+`wp-config.php`, as plain text had a DNS record ever pointed at it.
