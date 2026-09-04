@@ -29,8 +29,22 @@ class Synditracker_Core {
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/api/class-synditracker-api-controller.php';
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-synditracker-core-cpt.php';
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-synditracker-logger.php';
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-synditracker-core-db.php';
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-synditracker-discord.php';
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-synditracker-alerts.php';
 
 		$this->loader = new Synditracker_Core_Loader();
+	}
+
+	/**
+	 * Bring the schema up to date.
+	 *
+	 * Runs on init because this plugin has been upgraded in place without ever
+	 * being reactivated, so the activation hook alone does not guarantee the
+	 * tables and columns the code expects exist. No-ops once versions match.
+	 */
+	public function maybe_upgrade_db() {
+		Synditracker_Core_DB::maybe_upgrade();
 	}
 
 	private function define_admin_hooks() {
@@ -41,6 +55,8 @@ class Synditracker_Core {
         // Partner Site CPT
         $cpt = new Synditracker_Core_CPT();
         $this->loader->add_action( 'init', $cpt, 'register_partner_site_cpt' );
+
+        $this->loader->add_action( 'init', $this, 'maybe_upgrade_db' );
 	}
 
 	private function define_public_hooks() {
